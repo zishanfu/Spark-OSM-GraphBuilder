@@ -1,15 +1,23 @@
 package com.zishanfu.sparkdemo.osm;
 
 
-import org.apache.spark.SparkContext;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.FlatMapFunction;
-
 import java.io.File;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.apache.spark.SparkContext;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.broadcast.Broadcast;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoder;
+import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SparkSession;
 import org.openstreetmap.osmosis.core.container.v0_6.EntityContainer;
 import org.openstreetmap.osmosis.core.domain.v0_6.Entity;
 import org.openstreetmap.osmosis.core.domain.v0_6.Node;
@@ -20,14 +28,11 @@ import org.openstreetmap.osmosis.core.domain.v0_6.WayNode;
 import org.openstreetmap.osmosis.core.task.v0_6.Sink;
 import org.openstreetmap.osmosis.pbf2.v0_6.PbfReader;
 
-import com.zishanfu.sparkdemo.entity.*;
+import com.zishanfu.sparkdemo.entity.LabeledWay;
+import com.zishanfu.sparkdemo.entity.NodeEntry;
+import com.zishanfu.sparkdemo.entity.WayEntry;
 
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Encoder;
-import org.apache.spark.sql.Encoders;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.Column;
+import scala.Tuple2;
 
 
 public class OSMParser {
@@ -56,6 +61,7 @@ public class OSMParser {
 	    		  .getOrCreate();
 		SparkContext sc = spark.sparkContext();
 		
+		//Digest OSM data
 		File osmFile = new File(osm);
         PbfReader reader = new PbfReader(osmFile, 1);
         List<NodeEntry> nodes = new ArrayList<>();
@@ -87,16 +93,24 @@ public class OSMParser {
                 }
                 
             }
- 
-            public void initialize(Map<String, Object> arg0) {
-            }
- 
-            public void complete() {
-            }
- 
-            public void release() {
-            }
- 
+
+			@Override
+			public void initialize(Map<String, Object> metaData) {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void complete() {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void release() {
+				// TODO Auto-generated method stub
+				
+			}
         };
  
         reader.setSink(sinkImplementation);
@@ -108,16 +122,36 @@ public class OSMParser {
         Encoder<WayEntry> wayEncoder = Encoders.bean(WayEntry.class);
         Dataset<WayEntry> wayDS = spark.createDataset(ways, wayEncoder);
         
+        //Find intersections
         Encoder<Long> longEncoder = Encoders.LONG();
         
         Dataset<Long> wayNodeIds = wayDS.flatMap(w -> {
-        	return w.getNodes().iterator();
+        		return w.getNodes().iterator();
         }, longEncoder).coalesce(1);
 
-        Dataset<Row> intersectionNodes = wayNodeIds.groupBy("value").count().filter("count >= 2").select("value");
-        		
-        Dataset<Row> wayNodes = nodeDS.joinWith(wayNodeIds.distinct(), wayNodeIds.distinct().col("value").equalTo(nodeDS.col("nodeId"))).select("nodeId").cache();
-        wayNodes.show();
+        Dataset<Long> intersectionNodes = wayNodeIds.groupBy("value").count()
+        		.filter("count >= 2").select("value").as(longEncoder);
+
+        Broadcast<List<Long>> broadcastInters = sc.broadcast(intersectionNodes.toJavaRDD().collect(),
+        		scala.reflect.ClassTag$.MODULE$.apply(List.class));
+        
+        Dataset<Row> wayNodes = nodeDS.joinWith(wayNodeIds.distinct(), 
+        		wayNodeIds.distinct().col("value").equalTo(nodeDS.col("nodeId"))).select("_1").cache();
+        
+        
+        Encoder<LabeledWay> lwEncoder = Encoders.bean(LabeledWay.class);
+        Dataset<LabeledWay> labeledWays = wayDS.map(w ->{
+        		List<Tuple2<Long, Boolean>> nodesWithLabels = w.getNodes().stream().map(
+        				id -> new Tuple2<Long, Boolean>(id, broadcastInters.getValue().contains(id))
+        				).collect(Collectors.toList());
+        		nodesWithLabels.set(nodesWithLabels.size()-1, 
+        				new Tuple2<Long, Boolean>(nodesWithLabels.get(nodesWithLabels.size()-1)._1, true));
+        		nodesWithLabels.set(0, new Tuple2<Long, Boolean>(nodesWithLabels.get(0)._1, true));
+        		return new LabeledWay(w.getWayId(), nodesWithLabels);
+        }, lwEncoder);
+        	
+        //Convert ways into edges
+        
         spark.stop();
         
 	}
