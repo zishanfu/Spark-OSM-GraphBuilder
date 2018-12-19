@@ -115,8 +115,8 @@ public class OSMParser {
         }, longEncoder).coalesce(1);
 
         Dataset<Row> intersectionNodes = wayNodeIds.groupBy("value").count().filter("count >= 2").select("value");
-        		
-        Dataset<Row> wayNodes = nodeDS.joinWith(wayNodeIds.distinct(), wayNodeIds.distinct().col("value").equalTo(nodeDS.col("nodeId"))).select("nodeId").cache();
+        nodeDS.printSchema();	
+        Dataset<Row> wayNodes = nodeDS.joinWith(wayNodeIds.distinct(), wayNodeIds.distinct().col("value").equalTo(nodeDS.col("nodeId"))).select("_1").cache();
         wayNodes.show();
         spark.stop();
         
