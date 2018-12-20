@@ -4,6 +4,7 @@ package com.zishanfu.sparkdemo.osm;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +30,6 @@ import org.openstreetmap.osmosis.core.task.v0_6.Sink;
 import org.openstreetmap.osmosis.pbf2.v0_6.PbfReader;
 
 import com.zishanfu.sparkdemo.entity.Intersection;
-import com.zishanfu.sparkdemo.entity.IntersectionNode;
 import com.zishanfu.sparkdemo.entity.LabeledWay;
 import com.zishanfu.sparkdemo.entity.NodeEntry;
 import com.zishanfu.sparkdemo.entity.WayEntry;
@@ -153,70 +153,91 @@ public class OSMParser{
         		return new LabeledWay(w.getWayId(), nodesWithLabels);
         }, lwEncoder);
         
-        
-        //Convert ways into edges
         JavaPairRDD<Long, List<Tuple3<Long, List<Long>, List<Long>>>> segmentedWays = labeledWays.javaRDD().mapToPair(lw ->{
         	return new Tuple2<Long, List<Tuple3<Long, List<Long>, List<Long>>>>(
         			lw.getWayId(), 
-        			segmentWay(lw.getLabeledNodes()));
+        			new MakeSegments(lw.getLabeledNodes()).getTupleList());
         });
         
-        Encoder<Tuple2<Long, IntersectionNode>> tupleEncoder = Encoders.tuple(Encoders.LONG(), Encoders.bean(IntersectionNode.class));
+        Encoder<Tuple2<Long, Intersection>> tupleEncoder = Encoders.tuple(Encoders.LONG(), Encoders.bean(Intersection.class));
         
-        // for each (wayId, (inBuf, outBuf)) => (wayId, IntersectionNode(nodeId, inBuf, outBuf))
-
-
+        
+        Dataset<Tuple2<Long, Intersection>> segmentWaysDS = labeledWays.flatMap(lw ->{
+        		List<Intersection> sws = new MakeSegments(lw.getLabeledNodes()).getIntersectList();
+        		List<Tuple2<Long, Intersection>> res = sws.stream().map(intersect -> 
+        			new Tuple2<Long, Intersection>(lw.getWayId(),intersect)).collect(Collectors.toList());
+        		return res.iterator();
+        }, tupleEncoder);
+        
+        //wayid, intersection
+        //wayid, (OSMId, in, out)
+        //OSMId, wayid -> (in, out), ...
+        JavaPairRDD<Long, Map<Long, Tuple2<List<Long>, List<Long>>>> intersectVertices = segmentWaysDS.toJavaRDD().mapToPair(sw -> {
+        		Map<Long, Tuple2<List<Long>, List<Long>>> map = new HashMap<>();
+        		map.put(sw._1, new Tuple2<>(sw._2.getInBuf(), sw._2.getOutBuf()));
+        		return new Tuple2<>(sw._2.getOSMId(), map);
+        }).reduceByKey((a, b) -> {
+        		a.putAll(b);
+        		return a;
+        });
+        
+//        intersectVertices.take(10).forEach(iv ->{
+//        		System.out.println(iv._1);
+//        });
+        
+        //process the data for the edges of the graph
+        
+        //JavaPairRDD<Long, List<Tuple3<Long, List<Long>, List<Long>>>>
+        segmentedWays.filter(way -> way._2.size() > 1)
+        				.flatMap( sw ->{
+        					RDDFunctions.
+        				});
         
         spark.stop();
         
 	}
 	
 	
-	private static List<Tuple3<Long, List<Long>, List<Long>>> segmentWay(List<Tuple2<Long, Boolean>> way){
-		List<Intersection> intersections = new ArrayList<Intersection>();
-		List<Long> currentBuffer = new ArrayList<Long>();
-		
-		if(way.size() == 1) {
-			Intersection intersect = new Intersection(way.get(0)._1, new ArrayList<Long>(Arrays.asList(-1L)), new ArrayList<Long>(Arrays.asList(-1L)));
-			return new ArrayList<>( Arrays.asList(
-					new Tuple3<>(
-							intersect.getOSMId(), 
-							intersect.getInBuf(), 
-							intersect.getOutBuf())));
-		}
-		
-		//Tuple2<Long, Boolean>
-		//(id, isIntersection)
-		for(int i = 0; i<way.size(); i++) {
-			Tuple2<Long, Boolean> node = way.get(i);
-			if(node._2) {
-				Intersection newEntry = new Intersection(node._1, new ArrayList<>(currentBuffer), new ArrayList<>());
-				intersections.add(newEntry);
-				currentBuffer.clear();
-			}else {
-				currentBuffer.add(node._1);
-			}
-			
-			if(i == way.size() - 1 && !currentBuffer.isEmpty()) {
-				if(intersections.isEmpty()) {
-					intersections.add(new Intersection(-1L, new ArrayList<Long>(), currentBuffer));
-				}else {
-					int last = intersections.size() - 1;
-					List<Long> of = intersections.get(last).getOutBuf();
-					of.addAll(currentBuffer);
-					intersections.set(last, new Intersection(
-							intersections.get(last).getOSMId(),
-							intersections.get(last).getInBuf(),
-							of));
-				}
-				currentBuffer.clear();
-			}
-		}
-
-		
-		return intersections.stream().map(i -> new Tuple3<Long, List<Long>, List<Long>>(i.getOSMId(), i.getInBuf(), i.getOutBuf())).collect(Collectors.toList());
-		
-	}
+//	private static List<Intersection> makeSegments(List<Tuple2<Long, Boolean>> way){
+//		List<Intersection> intersections = new ArrayList<Intersection>();
+//		List<Long> segmentBuffer = new ArrayList<Long>();
+//		
+//		if(way.size() == 1) {
+//			Intersection intersect = new Intersection(way.get(0)._1, new ArrayList<Long>(Arrays.asList(-1L)), new ArrayList<Long>(Arrays.asList(-1L)));
+//			return new ArrayList<>( Arrays.asList(intersect));
+//		}
+//		
+//		//Tuple2<Long, Boolean>
+//		//(id, isIntersection)
+//		for(int i = 0; i<way.size(); i++) {
+//			Tuple2<Long, Boolean> node = way.get(i);
+//			if(node._2) {
+//				Intersection newIntersect = new Intersection(node._1, new ArrayList<>(segmentBuffer), new ArrayList<>());
+//				intersections.add(newIntersect);
+//				segmentBuffer.clear();
+//			}else {
+//				segmentBuffer.add(node._1);
+//			}
+//			
+//			if(i == way.size() - 1 && !segmentBuffer.isEmpty()) {
+//				if(intersections.isEmpty()) {
+//					intersections.add(new Intersection(-1L, new ArrayList<Long>(), segmentBuffer));
+//				}else {
+//					int last = intersections.size() - 1;
+//					List<Long> of = intersections.get(last).getOutBuf();
+//					of.addAll(segmentBuffer);
+//					intersections.set(last, new Intersection(
+//							intersections.get(last).getOSMId(),
+//							intersections.get(last).getInBuf(),
+//							of));
+//				}
+//				segmentBuffer.clear();
+//			}
+//		}
+//
+//		
+//		return intersections;
+//	}
 	
 	
 	
