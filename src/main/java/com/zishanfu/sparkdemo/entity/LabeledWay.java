@@ -5,6 +5,7 @@ import java.util.List;
 
 import scala.Tuple2;
 
+//List<Tuple2<Long, Boolean>>
 public class LabeledWay implements Serializable{
 	private long wayId;
 	private List<Tuple2<Long, Boolean>> labeledNodes;
