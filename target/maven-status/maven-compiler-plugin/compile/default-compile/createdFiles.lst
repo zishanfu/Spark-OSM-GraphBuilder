@@ -1,0 +1,8 @@
+com/zishanfu/sparkdemo/osm/App.class
+com/zishanfu/sparkdemo/osm/OSMParser.class
+com/zishanfu/sparkdemo/entity/Intersection.class
+com/zishanfu/sparkdemo/entity/LabeledWay.class
+com/zishanfu/sparkdemo/entity/NodeEntry.class
+com/zishanfu/sparkdemo/osm/MakeSegments.class
+com/zishanfu/sparkdemo/osm/OSMParser$1.class
+com/zishanfu/sparkdemo/entity/WayEntry.class

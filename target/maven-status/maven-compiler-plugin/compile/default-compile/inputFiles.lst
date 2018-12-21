@@ -1,0 +1,7 @@
+/Users/SammiFu/Documents/eclipse-workspace/spark-graph/Spark-OSM-GraphBuilder/src/main/java/com/zishanfu/sparkdemo/osm/MakeSegments.java
+/Users/SammiFu/Documents/eclipse-workspace/spark-graph/Spark-OSM-GraphBuilder/src/main/java/com/zishanfu/sparkdemo/entity/Intersection.java
+/Users/SammiFu/Documents/eclipse-workspace/spark-graph/Spark-OSM-GraphBuilder/src/main/java/com/zishanfu/sparkdemo/osm/OSMParser.java
+/Users/SammiFu/Documents/eclipse-workspace/spark-graph/Spark-OSM-GraphBuilder/src/main/java/com/zishanfu/sparkdemo/osm/App.java
+/Users/SammiFu/Documents/eclipse-workspace/spark-graph/Spark-OSM-GraphBuilder/src/main/java/com/zishanfu/sparkdemo/entity/NodeEntry.java
+/Users/SammiFu/Documents/eclipse-workspace/spark-graph/Spark-OSM-GraphBuilder/src/main/java/com/zishanfu/sparkdemo/entity/WayEntry.java
+/Users/SammiFu/Documents/eclipse-workspace/spark-graph/Spark-OSM-GraphBuilder/src/main/java/com/zishanfu/sparkdemo/entity/LabeledWay.java

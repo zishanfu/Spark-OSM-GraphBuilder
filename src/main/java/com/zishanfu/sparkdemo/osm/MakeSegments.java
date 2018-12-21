@@ -6,7 +6,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import com.zishanfu.sparkdemo.entity.Intersection;
+import com.zishanfu.sparkdemo.entity.*;
 
 import scala.Tuple2;
 import scala.Tuple3;

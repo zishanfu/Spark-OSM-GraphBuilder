@@ -4,7 +4,6 @@ package com.zishanfu.sparkdemo.osm;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -12,34 +11,29 @@ import java.util.Map;
 
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.graphx.Edge;
+import org.apache.spark.graphx.EdgeRDD;
 import org.apache.spark.graphx.Graph;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
 import org.apache.spark.sql.Encoders;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.storage.StorageLevel;
-import org.graphframes.GraphFrame;
 import org.openstreetmap.osmosis.core.container.v0_6.EntityContainer;
 import org.openstreetmap.osmosis.core.domain.v0_6.Entity;
 import org.openstreetmap.osmosis.core.domain.v0_6.Node;
-import org.openstreetmap.osmosis.core.domain.v0_6.Relation;
 import org.openstreetmap.osmosis.core.domain.v0_6.Tag;
 import org.openstreetmap.osmosis.core.domain.v0_6.Way;
 import org.openstreetmap.osmosis.core.domain.v0_6.WayNode;
 import org.openstreetmap.osmosis.core.task.v0_6.Sink;
 import org.openstreetmap.osmosis.pbf2.v0_6.PbfReader;
-import org.spark_project.guava.collect.Lists;
 
-import com.esotericsoftware.kryo.Kryo;
-import com.esotericsoftware.kryo.serializers.MapSerializer;
+
 import com.zishanfu.sparkdemo.entity.Intersection;
 import com.zishanfu.sparkdemo.entity.LabeledWay;
 import com.zishanfu.sparkdemo.entity.NodeEntry;
@@ -48,10 +42,9 @@ import com.zishanfu.sparkdemo.entity.WayEntry;
 import scala.Tuple2;
 import scala.Tuple3;
 import scala.collection.mutable.ArrayBuffer;
-//import scala.collection.Map;
-import scala.reflect.ClassTag;
-import shapeless.Tuple;
-import scala.reflect.ClassTag$;
+
+import com.esri.core.geometry.Point;
+import com.esri.core.geometry.GeometryEngine;
 
 
 public class OSMParser{
@@ -85,7 +78,6 @@ public class OSMParser{
         PbfReader reader = new PbfReader(osmFile, 1);
         ArrayBuffer<NodeEntry> nodes = new ArrayBuffer<>();
         ArrayBuffer<WayEntry> ways = new ArrayBuffer<>();
-        ArrayBuffer<Relation> relations = new ArrayBuffer<>();
  
         Sink sinkImplementation = new Sink() {
  
@@ -95,19 +87,17 @@ public class OSMParser{
                 List<String> tags = entity.getTags().stream().map(Tag::getValue).collect(Collectors.toList());
                 
                 if (entity instanceof Node) {
-                	nodes.$plus$eq(new NodeEntry(entity.getId(), 
+                		nodes.$plus$eq(new NodeEntry(entity.getId(), 
                 			((Node) entity).getLatitude(),((Node) entity).getLongitude(), tags));
                 	
                 } else if (entity instanceof Way) {
-                	ways.$plus$eq(new WayEntry(entity.getId(), tags, ((Way) entity).getWayNodes().stream().map(WayNode::getNodeId).collect(Collectors.toList())));
-                	
-                } else if (entity instanceof Relation) {
-                	
-                	Set<String> tagSet = entity.getTags().stream().map(Tag::getValue).collect(Collectors.toSet());
-            		if(tagSet.retainAll(allowableWays) && tagSet.size() != 0) {
-            			relations.$plus$eq((Relation) entity);
-            		}
-            		
+                		Set<String> tagSet = entity.getTags().stream().map(Tag::getValue).collect(Collectors.toSet());
+                		if(tagSet.retainAll(allowableWays) && tagSet.size() != 0) {
+                			ways.$plus$eq(new WayEntry(
+                					entity.getId(), 
+                					tags, 
+                					((Way) entity).getWayNodes().stream().map(WayNode::getNodeId).collect(Collectors.toList())));
+                		}
                 }
                 
             }
@@ -153,7 +143,8 @@ public class OSMParser{
         Broadcast<List<Long>> broadcastInters = sc.broadcast(intersectionNodes.toJavaRDD().collect());
         
         Dataset<NodeEntry> wayNodes = nodeDS.joinWith(wayNodeIds.distinct(), 
-        		wayNodeIds.distinct().col("value").equalTo(nodeDS.col("nodeId"))).select("_1").as(nodeEncoder).cache();
+        		wayNodeIds.distinct().col("value").equalTo(nodeDS.col("nodeId")))
+        		.map(wn -> wn._1, nodeEncoder).cache();
         
         
         Encoder<LabeledWay> lwEncoder = Encoders.bean(LabeledWay.class);
@@ -187,10 +178,10 @@ public class OSMParser{
         //wayid, (OSMId, in, out)
         //OSMId, wayid -> (in, out), ...
         //Map((wayid -> (inArray, outArray)), (wayid -> (inArray, outArray)), ...)
-        JavaPairRDD<Long, Map<Long, Tuple2<List<Long>, List<Long>>>> intersectVertices = segmentWaysDS.toJavaRDD().mapToPair(sw -> {
+        JavaPairRDD<Object, Map<Long, Tuple2<List<Long>, List<Long>>>> intersectVertices = segmentWaysDS.toJavaRDD().mapToPair(sw -> {
         		Map<Long, Tuple2<List<Long>, List<Long>>> map = new HashMap<>();
         		map.put(sw._1, new Tuple2<>(sw._2.getInBuf(), sw._2.getOutBuf()));
-        		return new Tuple2<>(sw._2.getOSMId(), map);
+        		return new Tuple2<>((Object)sw._2.getOSMId(), map);
         }).reduceByKey((a, b) -> {
         		a.putAll(b);
         		return a;
@@ -209,35 +200,45 @@ public class OSMParser{
         				new Edge<>(segment._1._1(), segment._2._1(), way._1),
         				new Edge<>(segment._2._1(), segment._1._1(), way._1)
         				)).stream();
-        	}).collect(Collectors.toList()).iterator();
+        		}).collect(Collectors.toList()).iterator();
         });
         
 //        edges.take(10).forEach(e -> {
 //        	System.out.println(e.toString());
 //        });
-        //RDD<scala.Tuple2<Object,VD>> vertices
-        //RDD<Tuple2<Object,
-        //Map<Long,Tuple2<List<Long>,List<Long>>>
-        //>>
-
-        //Map<Long, Tuple2<List<Long>, List<Long>>>
-        //
         
-
-//        Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Long> roadGraph = Graph.<Map<Long, Tuple2<List<Long>, List<Long>>>, Long> apply(
-//        		intersectVertices.rdd(), edges.rdd(), new HashMap<>(),
-//        		StorageLevel.MEMORY_AND_DISK(),
-//				StorageLevel.MEMORY_AND_DISK(),
-//				ClassTag$.MODULE$.<Map<Long, Tuple2<List<Long>, List<Long>>>>apply(HashMap.class), ClassTag$.MODULE$.<Long>apply(Long.class));
-//        
-        JavaPairRDD<Long, Tuple2<Double, Double>> OSMNodes = wayNodes.javaRDD().mapToPair(node ->{
-        	return new Tuple2<>(node.getNodeId(), new Tuple2<>(node.getLat(), node.getLon()));
+        Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Long> roadGraph = Graph.apply(
+        			intersectVertices.rdd(), 
+        			edges.rdd(), 
+        			new HashMap<>(), 
+        			StorageLevel.MEMORY_AND_DISK(), 
+        			StorageLevel.MEMORY_AND_DISK(),
+        			scala.reflect.ClassTag$.MODULE$.apply(HashMap.class),
+        			scala.reflect.ClassTag$.MODULE$.apply(Long.class));
+        
+//        roadGraph.edges().toJavaRDD().foreach(r -> {
+//        		System.out.println(r);
+//        });
+        roadGraph.vertices().toJavaRDD().foreach(r -> {
+    			System.out.println(r);
         });
+
+        Map<Long, Tuple2<Double, Double>> OSMNodes = wayNodes.javaRDD().mapToPair(node ->{
+        		return new Tuple2<>(node.getNodeId(), new Tuple2<>(node.getLat(), node.getLon()));
+        }).collectAsMap();
         		
+        
         spark.stop();
         
 	}
 	
+	private static double dist(long n1, long n2, Map<Long, Tuple2<Double, Double>> OSMNodes) {
+		Tuple2<Double, Double> n1Coord = OSMNodes.get(n1);
+		Tuple2<Double, Double> n2Coord = OSMNodes.get(n2);
+		Point p1 = new Point(n1Coord._1, n1Coord._2);
+		Point p2 = new Point(n2Coord._1, n2Coord._2);
+		return GeometryEngine.geodesicDistanceOnWGS84(p1, p2);
+	}
 
 	
 	private static List<Tuple2<Tuple3<Long, List<Long>, List<Long>>, Tuple3<Long, List<Long>, List<Long>>>> sliding(List<Tuple3<Long, List<Long>, List<Long>>> list){
@@ -249,48 +250,6 @@ public class OSMParser{
 		}
 		return res;
 	}
-	
-	
-//	private static List<Intersection> makeSegments(List<Tuple2<Long, Boolean>> way){
-//		List<Intersection> intersections = new ArrayList<Intersection>();
-//		List<Long> segmentBuffer = new ArrayList<Long>();
-//		
-//		if(way.size() == 1) {
-//			Intersection intersect = new Intersection(way.get(0)._1, new ArrayList<Long>(Arrays.asList(-1L)), new ArrayList<Long>(Arrays.asList(-1L)));
-//			return new ArrayList<>( Arrays.asList(intersect));
-//		}
-//		
-//		//Tuple2<Long, Boolean>
-//		//(id, isIntersection)
-//		for(int i = 0; i<way.size(); i++) {
-//			Tuple2<Long, Boolean> node = way.get(i);
-//			if(node._2) {
-//				Intersection newIntersect = new Intersection(node._1, new ArrayList<>(segmentBuffer), new ArrayList<>());
-//				intersections.add(newIntersect);
-//				segmentBuffer.clear();
-//			}else {
-//				segmentBuffer.add(node._1);
-//			}
-//			
-//			if(i == way.size() - 1 && !segmentBuffer.isEmpty()) {
-//				if(intersections.isEmpty()) {
-//					intersections.add(new Intersection(-1L, new ArrayList<Long>(), segmentBuffer));
-//				}else {
-//					int last = intersections.size() - 1;
-//					List<Long> of = intersections.get(last).getOutBuf();
-//					of.addAll(segmentBuffer);
-//					intersections.set(last, new Intersection(
-//							intersections.get(last).getOSMId(),
-//							intersections.get(last).getInBuf(),
-//							of));
-//				}
-//				segmentBuffer.clear();
-//			}
-//		}
-//
-//		
-//		return intersections;
-//	}
 	
 	
 	

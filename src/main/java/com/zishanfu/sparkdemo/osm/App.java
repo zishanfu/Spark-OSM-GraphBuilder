@@ -1,9 +1,5 @@
 package com.zishanfu.sparkdemo.osm;
 
-import org.apache.spark.SparkConf;
-import org.apache.spark.sql.SparkSession;
-
-
 public class App 
 {
 	static String base = System.getProperty("user.home");
