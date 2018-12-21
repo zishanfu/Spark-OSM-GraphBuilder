@@ -4,21 +4,29 @@ package com.zishanfu.sparkdemo.osm;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.apache.spark.api.java.JavaPairRDD;
+import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.broadcast.Broadcast;
+import org.apache.spark.graphx.Edge;
+import org.apache.spark.graphx.Graph;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.storage.StorageLevel;
+import org.graphframes.GraphFrame;
 import org.openstreetmap.osmosis.core.container.v0_6.EntityContainer;
 import org.openstreetmap.osmosis.core.domain.v0_6.Entity;
 import org.openstreetmap.osmosis.core.domain.v0_6.Node;
@@ -28,7 +36,10 @@ import org.openstreetmap.osmosis.core.domain.v0_6.Way;
 import org.openstreetmap.osmosis.core.domain.v0_6.WayNode;
 import org.openstreetmap.osmosis.core.task.v0_6.Sink;
 import org.openstreetmap.osmosis.pbf2.v0_6.PbfReader;
+import org.spark_project.guava.collect.Lists;
 
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.serializers.MapSerializer;
 import com.zishanfu.sparkdemo.entity.Intersection;
 import com.zishanfu.sparkdemo.entity.LabeledWay;
 import com.zishanfu.sparkdemo.entity.NodeEntry;
@@ -37,7 +48,10 @@ import com.zishanfu.sparkdemo.entity.WayEntry;
 import scala.Tuple2;
 import scala.Tuple3;
 import scala.collection.mutable.ArrayBuffer;
+//import scala.collection.Map;
 import scala.reflect.ClassTag;
+import shapeless.Tuple;
+import scala.reflect.ClassTag$;
 
 
 public class OSMParser{
@@ -138,8 +152,8 @@ public class OSMParser{
 
         Broadcast<List<Long>> broadcastInters = sc.broadcast(intersectionNodes.toJavaRDD().collect());
         
-        Dataset<Row> wayNodes = nodeDS.joinWith(wayNodeIds.distinct(), 
-        		wayNodeIds.distinct().col("value").equalTo(nodeDS.col("nodeId"))).select("_1").cache();
+        Dataset<NodeEntry> wayNodes = nodeDS.joinWith(wayNodeIds.distinct(), 
+        		wayNodeIds.distinct().col("value").equalTo(nodeDS.col("nodeId"))).select("_1").as(nodeEncoder).cache();
         
         
         Encoder<LabeledWay> lwEncoder = Encoders.bean(LabeledWay.class);
@@ -172,6 +186,7 @@ public class OSMParser{
         //wayid, intersection
         //wayid, (OSMId, in, out)
         //OSMId, wayid -> (in, out), ...
+        //Map((wayid -> (inArray, outArray)), (wayid -> (inArray, outArray)), ...)
         JavaPairRDD<Long, Map<Long, Tuple2<List<Long>, List<Long>>>> intersectVertices = segmentWaysDS.toJavaRDD().mapToPair(sw -> {
         		Map<Long, Tuple2<List<Long>, List<Long>>> map = new HashMap<>();
         		map.put(sw._1, new Tuple2<>(sw._2.getInBuf(), sw._2.getOutBuf()));
@@ -188,13 +203,51 @@ public class OSMParser{
         //process the data for the edges of the graph
         
         //JavaPairRDD<Long, List<Tuple3<Long, List<Long>, List<Long>>>>
-        segmentedWays.filter(way -> way._2.size() > 1)
-        				.flatMap( sw ->{
-        					RDDFunctions.
-        				});
+        JavaRDD<Edge<Long>> edges = segmentedWays.filter(way -> way._2.size() > 1).flatMap(way -> {
+        	return sliding(way._2).stream().flatMap(segment ->{
+        		return new ArrayList<>(Arrays.asList(
+        				new Edge<>(segment._1._1(), segment._2._1(), way._1),
+        				new Edge<>(segment._2._1(), segment._1._1(), way._1)
+        				)).stream();
+        	}).collect(Collectors.toList()).iterator();
+        });
         
+//        edges.take(10).forEach(e -> {
+//        	System.out.println(e.toString());
+//        });
+        //RDD<scala.Tuple2<Object,VD>> vertices
+        //RDD<Tuple2<Object,
+        //Map<Long,Tuple2<List<Long>,List<Long>>>
+        //>>
+
+        //Map<Long, Tuple2<List<Long>, List<Long>>>
+        //
+        
+
+//        Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Long> roadGraph = Graph.<Map<Long, Tuple2<List<Long>, List<Long>>>, Long> apply(
+//        		intersectVertices.rdd(), edges.rdd(), new HashMap<>(),
+//        		StorageLevel.MEMORY_AND_DISK(),
+//				StorageLevel.MEMORY_AND_DISK(),
+//				ClassTag$.MODULE$.<Map<Long, Tuple2<List<Long>, List<Long>>>>apply(HashMap.class), ClassTag$.MODULE$.<Long>apply(Long.class));
+//        
+        JavaPairRDD<Long, Tuple2<Double, Double>> OSMNodes = wayNodes.javaRDD().mapToPair(node ->{
+        	return new Tuple2<>(node.getNodeId(), new Tuple2<>(node.getLat(), node.getLon()));
+        });
+        		
         spark.stop();
         
+	}
+	
+
+	
+	private static List<Tuple2<Tuple3<Long, List<Long>, List<Long>>, Tuple3<Long, List<Long>, List<Long>>>> sliding(List<Tuple3<Long, List<Long>, List<Long>>> list){
+		List<Tuple2<Tuple3<Long, List<Long>, List<Long>>, Tuple3<Long, List<Long>, List<Long>>>> res = new ArrayList<>();
+		for(int i = 1; i<list.size(); i++) {
+			Tuple3<Long, List<Long>, List<Long>> t1 = list.get(i - 1);
+			Tuple3<Long, List<Long>, List<Long>> t2 = list.get(i);
+			res.add(new Tuple2<>(t1, t2));
+		}
+		return res;
 	}
 	
 	
