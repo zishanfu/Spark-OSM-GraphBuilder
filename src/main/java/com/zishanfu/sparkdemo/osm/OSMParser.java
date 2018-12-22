@@ -19,6 +19,7 @@ import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.graphx.Edge;
 import org.apache.spark.graphx.EdgeRDD;
 import org.apache.spark.graphx.Graph;
+import org.apache.spark.graphx.lib.ShortestPaths;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
 import org.apache.spark.sql.Encoders;
@@ -41,6 +42,7 @@ import com.zishanfu.sparkdemo.entity.WayEntry;
 
 import scala.Tuple2;
 import scala.Tuple3;
+import scala.collection.Seq;
 import scala.collection.mutable.ArrayBuffer;
 
 import com.esri.core.geometry.Point;
@@ -195,7 +197,7 @@ public class OSMParser{
         
         //JavaPairRDD<Long, List<Tuple3<Long, List<Long>, List<Long>>>>
         JavaRDD<Edge<Long>> edges = segmentedWays.filter(way -> way._2.size() > 1).flatMap(way -> {
-        	return sliding(way._2).stream().flatMap(segment ->{
+        	return new SlidingList<Tuple3<Long, List<Long>, List<Long>>>(way._2).windows(2).stream().flatMap(segment ->{
         		return new ArrayList<>(Arrays.asList(
         				new Edge<>(segment._1._1(), segment._2._1(), way._1),
         				new Edge<>(segment._2._1(), segment._1._1(), way._1)
@@ -219,37 +221,39 @@ public class OSMParser{
 //        roadGraph.edges().toJavaRDD().foreach(r -> {
 //        		System.out.println(r);
 //        });
-        roadGraph.vertices().toJavaRDD().foreach(r -> {
-    			System.out.println(r);
-        });
+//        roadGraph.vertices().toJavaRDD().foreach(r -> {
+//    			System.out.println(r);
+//        });
 
         Map<Long, Tuple2<Double, Double>> OSMNodes = wayNodes.javaRDD().mapToPair(node ->{
         		return new Tuple2<>(node.getNodeId(), new Tuple2<>(node.getLat(), node.getLon()));
         }).collectAsMap();
-        		
         
+//        Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Tuple2<Long, Double>> weightedRoadGraph = roadGraph.mapTriplets(
+//        		EdgeTriplet<Map<Long, Tuple2<List<Long>, List<Long>>>, Long> triplet ->{
+//        	
+//        }, scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
+        
+        Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Tuple2<Long, Double>> weightedRoadGraph = roadGraph.mapTriplets(
+        		new AbsDistFunc(OSMNodes), scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
+        
+        ShortestPaths.run(weightedRoadGraph, new Seq<Long>(32884939,32884943), scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
         spark.stop();
         
 	}
 	
-	private static double dist(long n1, long n2, Map<Long, Tuple2<Double, Double>> OSMNodes) {
-		Tuple2<Double, Double> n1Coord = OSMNodes.get(n1);
-		Tuple2<Double, Double> n2Coord = OSMNodes.get(n2);
-		Point p1 = new Point(n1Coord._1, n1Coord._2);
-		Point p2 = new Point(n2Coord._1, n2Coord._2);
-		return GeometryEngine.geodesicDistanceOnWGS84(p1, p2);
-	}
+	
 
 	
-	private static List<Tuple2<Tuple3<Long, List<Long>, List<Long>>, Tuple3<Long, List<Long>, List<Long>>>> sliding(List<Tuple3<Long, List<Long>, List<Long>>> list){
-		List<Tuple2<Tuple3<Long, List<Long>, List<Long>>, Tuple3<Long, List<Long>, List<Long>>>> res = new ArrayList<>();
-		for(int i = 1; i<list.size(); i++) {
-			Tuple3<Long, List<Long>, List<Long>> t1 = list.get(i - 1);
-			Tuple3<Long, List<Long>, List<Long>> t2 = list.get(i);
-			res.add(new Tuple2<>(t1, t2));
-		}
-		return res;
-	}
+//	private static List<Tuple2<Tuple3<Long, List<Long>, List<Long>>, Tuple3<Long, List<Long>, List<Long>>>> sliding(List<Tuple3<Long, List<Long>, List<Long>>> list){
+//		List<Tuple2<Tuple3<Long, List<Long>, List<Long>>, Tuple3<Long, List<Long>, List<Long>>>> res = new ArrayList<>();
+//		for(int i = 1; i<list.size(); i++) {
+//			Tuple3<Long, List<Long>, List<Long>> t1 = list.get(i - 1);
+//			Tuple3<Long, List<Long>, List<Long>> t2 = list.get(i);
+//			res.add(new Tuple2<>(t1, t2));
+//		}
+//		return res;
+//	}
 	
 	
 	
