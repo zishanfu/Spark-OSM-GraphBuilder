@@ -2,6 +2,7 @@ package com.zishanfu.sparkdemo.osm;
 
 
 import java.io.File;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -42,6 +43,7 @@ import com.zishanfu.sparkdemo.entity.WayEntry;
 
 import scala.Tuple2;
 import scala.Tuple3;
+import scala.collection.JavaConverters;
 import scala.collection.Seq;
 import scala.collection.mutable.ArrayBuffer;
 
@@ -49,7 +51,7 @@ import com.esri.core.geometry.Point;
 import com.esri.core.geometry.GeometryEngine;
 
 
-public class OSMParser{
+public class OSMParser implements Serializable{
 	Set<String> allowableWays = new HashSet<>(Arrays.asList(  
 			  "motorway",
 			  "motorway_link",
@@ -237,9 +239,16 @@ public class OSMParser{
         Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Tuple2<Long, Double>> weightedRoadGraph = roadGraph.mapTriplets(
         		new AbsDistFunc(OSMNodes), scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
         
-        ShortestPaths.run(weightedRoadGraph, new Seq<Long>(32884939,32884943), scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
+        //32884939,32884943
+        Seq<Object> request = convertListToSeq(Arrays.asList(32884939L,32884943L));
+        ShortestPaths.run(weightedRoadGraph, request, scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
+        
         spark.stop();
         
+	}
+	
+	public static Seq<Object> convertListToSeq(List<Object> inputList) {
+	    return JavaConverters.asScalaIteratorConverter(inputList.iterator()).asScala().toSeq();
 	}
 	
 	
