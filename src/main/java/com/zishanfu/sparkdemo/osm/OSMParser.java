@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+//import java.util.Map;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -49,7 +49,7 @@ import scala.collection.mutable.ArrayBuffer;
 
 import com.esri.core.geometry.Point;
 import com.esri.core.geometry.GeometryEngine;
-
+import scala.collection.mutable.Map;
 
 public class OSMParser implements Serializable{
 	Set<String> allowableWays = new HashSet<>(Arrays.asList(  
@@ -106,10 +106,6 @@ public class OSMParser implements Serializable{
                 
             }
 
-			@Override
-			public void initialize(Map<String, Object> metaData) {
-				// TODO Auto-generated method stub
-			}
 
 			@Override
 			public void complete() {
@@ -119,6 +115,12 @@ public class OSMParser implements Serializable{
 
 			@Override
 			public void release() {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void initialize(java.util.Map<String, Object> metaData) {
 				// TODO Auto-generated method stub
 				
 			}
@@ -140,16 +142,16 @@ public class OSMParser implements Serializable{
         		return w.getNodes().iterator();
         }, longEncoder).coalesce(1);
 
-
         Dataset<Long> intersectionNodes = wayNodeIds.groupBy("value").count()
         		.filter("count >= 2").select("value").as(longEncoder);
 
         Broadcast<List<Long>> broadcastInters = sc.broadcast(intersectionNodes.toJavaRDD().collect());
+       
         
         Dataset<NodeEntry> wayNodes = nodeDS.joinWith(wayNodeIds.distinct(), 
         		wayNodeIds.distinct().col("value").equalTo(nodeDS.col("nodeId")))
         		.map(wn -> wn._1, nodeEncoder).cache();
-        
+
         
         Encoder<LabeledWay> lwEncoder = Encoders.bean(LabeledWay.class);
         Dataset<LabeledWay> labeledWays = wayDS.map(w ->{
@@ -183,16 +185,21 @@ public class OSMParser implements Serializable{
         //OSMId, wayid -> (in, out), ...
         //Map((wayid -> (inArray, outArray)), (wayid -> (inArray, outArray)), ...)
         JavaPairRDD<Object, Map<Long, Tuple2<List<Long>, List<Long>>>> intersectVertices = segmentWaysDS.toJavaRDD().mapToPair(sw -> {
-        		Map<Long, Tuple2<List<Long>, List<Long>>> map = new HashMap<>();
-        		map.put(sw._1, new Tuple2<>(sw._2.getInBuf(), sw._2.getOutBuf()));
-        		return new Tuple2<>((Object)sw._2.getOSMId(), map);
+//        		Map<Long, Tuple2<List<Long>, List<Long>>> map = new Map<>();
+//        		map.put(sw._1, new Tuple2<>(sw._2.getInBuf(), sw._2.getOutBuf()));
+        		//return new Tuple2<>((Object)sw._2.getOSMId(), map);
+        	List<Tuple2<Long, Tuple2<List<Long>, List<Long>>>> tmp = new ArrayList<>();
+        	tmp.add(new Tuple2<>(sw._1, new Tuple2<>(sw._2.getInBuf(), sw._2.getOutBuf())));
+        	Seq<Tuple2<Long, Tuple2<List<Long>, List<Long>>>> tmpSeq = JavaConverters.asScalaIteratorConverter(tmp.iterator()).asScala().toSeq();
+        	return new Tuple2<>((Object)sw._2.getOSMId(), (Map<Long, Tuple2<List<Long>, List<Long>>>) scala.collection.immutable.Map$.MODULE$.apply(tmpSeq));
         }).reduceByKey((a, b) -> {
-        		a.putAll(b);
-        		return a;
+        	a.$plus$eq(b);
+        	//a.putAll(b);
+        	return a;
         });
         
 //        intersectVertices.take(10).forEach(iv ->{
-//        		System.out.println(iv._1);
+//        		System.out.println(iv._1 + "," + iv._2);
 //        });
         
         //process the data for the edges of the graph
@@ -231,10 +238,7 @@ public class OSMParser implements Serializable{
         		return new Tuple2<>(node.getNodeId(), new Tuple2<>(node.getLat(), node.getLon()));
         }).collectAsMap();
         
-//        Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Tuple2<Long, Double>> weightedRoadGraph = roadGraph.mapTriplets(
-//        		EdgeTriplet<Map<Long, Tuple2<List<Long>, List<Long>>>, Long> triplet ->{
-//        	
-//        }, scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
+
         
         Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Tuple2<Long, Double>> weightedRoadGraph = roadGraph.mapTriplets(
         		new AbsDistFunc(OSMNodes), scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
@@ -250,24 +254,6 @@ public class OSMParser implements Serializable{
 	public static Seq<Object> convertListToSeq(List<Object> inputList) {
 	    return JavaConverters.asScalaIteratorConverter(inputList.iterator()).asScala().toSeq();
 	}
-	
-	
-
-	
-//	private static List<Tuple2<Tuple3<Long, List<Long>, List<Long>>, Tuple3<Long, List<Long>, List<Long>>>> sliding(List<Tuple3<Long, List<Long>, List<Long>>> list){
-//		List<Tuple2<Tuple3<Long, List<Long>, List<Long>>, Tuple3<Long, List<Long>, List<Long>>>> res = new ArrayList<>();
-//		for(int i = 1; i<list.size(); i++) {
-//			Tuple3<Long, List<Long>, List<Long>> t1 = list.get(i - 1);
-//			Tuple3<Long, List<Long>, List<Long>> t2 = list.get(i);
-//			res.add(new Tuple2<>(t1, t2));
-//		}
-//		return res;
-//	}
-	
-	
-	
-	
-	
 	
 	
 }

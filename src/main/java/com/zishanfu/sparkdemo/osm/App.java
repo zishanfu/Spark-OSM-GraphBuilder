@@ -13,6 +13,8 @@ public class App
 //    		     .config("spark.memory.offHeap.enabled",true)
 //    		     .config("spark.memory.offHeap.size","16g")   
 //    		     .getOrCreate();
-        OSMParser osmparser = new OSMParser(base + "/Downloads/datasets/maldives-latest.osm.pbf");
+    	
+    	//maldives-latest.osm.pbf
+        OSMParser osmparser = new OSMParser(base + "/Downloads/datasets/faroe-islands-latest.osm.pbf");
     }
 }
