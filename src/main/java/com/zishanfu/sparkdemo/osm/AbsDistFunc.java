@@ -3,6 +3,7 @@ package com.zishanfu.sparkdemo.osm;
 import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
+//import scala.collection.mutable.Map;
 
 import org.apache.spark.graphx.EdgeTriplet;
 
@@ -11,6 +12,7 @@ import com.esri.core.geometry.Point;
 
 import scala.Tuple2;
 import scala.runtime.AbstractFunction1;
+
 
 public class AbsDistFunc extends AbstractFunction1<EdgeTriplet<Map<Long, Tuple2<List<Long>, List<Long>>>, Long>,Tuple2<Long, Double>> implements Serializable{
 	
