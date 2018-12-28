@@ -1,20 +1,21 @@
-package com.zishanfu.sparkdemo.osm;
+package com.zishanfu.sparkdemo.serializable;
 
 import java.io.Serializable;
-import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
-//import scala.collection.mutable.Map;
 
 import org.apache.spark.graphx.EdgeTriplet;
 
 import com.esri.core.geometry.GeometryEngine;
 import com.esri.core.geometry.Point;
+import com.zishanfu.sparkdemo.osm.SlidingList;
 
 import scala.Tuple2;
 import scala.runtime.AbstractFunction1;
 
 
-public class AbsDistFunc extends AbstractFunction1<EdgeTriplet<Map<Long, Tuple2<List<Long>, List<Long>>>, Long>,Tuple2<Long, Double>> implements Serializable{
+public class AbsDistFunc extends AbstractFunction1<EdgeTriplet<Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>>, Long>,Tuple2<Long, Double>> implements Serializable{
+	private static final long serialVersionUID = 1662041866586937660L;
 	
 	private Map<Long, Tuple2<Double, Double>> OSMNodes;
 	
@@ -23,8 +24,8 @@ public class AbsDistFunc extends AbstractFunction1<EdgeTriplet<Map<Long, Tuple2<
 	}
 	
 	@Override
-	public Tuple2<Long, Double> apply(EdgeTriplet<Map<Long, Tuple2<List<Long>, List<Long>>>, Long> triplet) {
-		List<Long> wayNodes = triplet.dstAttr().get(triplet.attr)._1;
+	public Tuple2<Long, Double> apply(EdgeTriplet<Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>>, Long> triplet) {
+		ArrayList<Long> wayNodes = triplet.dstAttr().get(triplet.attr)._1;
 		if(wayNodes.isEmpty()) {
 			return new Tuple2<>(triplet.attr, dist(triplet.srcId(), triplet.dstId()));
 		}else {

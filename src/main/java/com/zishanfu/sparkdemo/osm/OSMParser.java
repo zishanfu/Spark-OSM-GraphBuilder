@@ -19,9 +19,8 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.graphx.Edge;
 import org.apache.spark.graphx.EdgeDirection;
-import org.apache.spark.graphx.EdgeRDD;
 import org.apache.spark.graphx.Graph;
-import org.apache.spark.graphx.GraphOps;
+import org.apache.spark.graphx.Pregel;
 import org.apache.spark.graphx.lib.ShortestPaths;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
@@ -42,19 +41,32 @@ import com.zishanfu.sparkdemo.entity.Intersection;
 import com.zishanfu.sparkdemo.entity.LabeledWay;
 import com.zishanfu.sparkdemo.entity.NodeEntry;
 import com.zishanfu.sparkdemo.entity.WayEntry;
+import com.zishanfu.sparkdemo.serializable.AbsDistFunc;
+import com.zishanfu.sparkdemo.serializable.MergeMsg;
+import com.zishanfu.sparkdemo.serializable.SendMsg;
+import com.zishanfu.sparkdemo.serializable.SerializableFunction2;
+import com.zishanfu.sparkdemo.serializable.Vprog;
 
+import scala.Predef;
+import scala.Predef.$eq$colon$eq;
 import scala.Tuple2;
 import scala.Tuple3;
+import scala.collection.Iterator;
 import scala.collection.JavaConverters;
 import scala.collection.Seq;
 import scala.collection.mutable.ArrayBuffer;
+import scala.reflect.ClassTag;
+import scala.reflect.ClassTag$;
+import scala.runtime.AbstractFunction2;
 
-import com.esri.core.geometry.Point;
-import com.esri.core.geometry.GeometryEngine;
-//import scala.collection.mutable.Map;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
 public class OSMParser implements Serializable{
-	Set<String> allowableWays = new HashSet<>(Arrays.asList(  
+	
+	private static final long serialVersionUID = -7050802408177506358L;
+
+	private Set<String> allowableWays = new HashSet<>(Arrays.asList(  
 			  "motorway",
 			  "motorway_link",
 			  "trunk",
@@ -70,6 +82,17 @@ public class OSMParser implements Serializable{
 			  "road",
 			  "construction",
 			  "motorway_junction"));
+	
+	private static final ClassTag<Double> tagDouble = ClassTag$.MODULE$.apply(Double.class);
+	private static final ClassTag<Long> tagLong = ClassTag$.MODULE$.apply(Long.class);
+	
+	private static final $eq$colon$eq<Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>>, Tuple2<Double, ArrayList<Long>>> eqMap = new $eq$colon$eq<Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>>, Tuple2<Double, ArrayList<Long>>>(){
+		private static final long serialVersionUID = 1L;
+
+		public Tuple2<Double, ArrayList<Long>> apply(Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>> arg0) {
+			     return new Tuple2<>(Double.POSITIVE_INFINITY, Lists.newArrayList());
+		};
+	};
 	
 	public OSMParser(String osm) {
 		SparkSession spark = SparkSession
@@ -196,25 +219,22 @@ public class OSMParser implements Serializable{
 //        	//a.putAll(b);
 //        	return a;
 //        });
-        JavaPairRDD<Object, Map<Long, Tuple2<List<Long>, List<Long>>>> intersectVertices = segmentWaysDS.toJavaRDD().mapToPair(sw -> {
-    		Map<Long, Tuple2<List<Long>, List<Long>>> map = new HashMap<>();
-    		map.put(sw._1, new Tuple2<>(sw._2.getInBuf(), sw._2.getOutBuf()));
-    		return new Tuple2<>((Object)sw._2.getOSMId(), map);
+        JavaPairRDD<Object, Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>>> intersectVertices = segmentWaysDS.toJavaRDD().mapToPair(sw -> {
+    			Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>> map = new HashMap<>();
+    			map.put(sw._1, new Tuple2<>(Lists.newArrayList(sw._2.getInBuf()), Lists.newArrayList(sw._2.getOutBuf())));
+    			return new Tuple2<>((Object)sw._2.getOSMId(), map);
         }).reduceByKey((a, b) -> {
-        	a.putAll(b);
-        	return a;
+        		a.putAll(b);
+        		return a;
         });
         
 //        intersectVertices.take(10).forEach(iv ->{
 //        		System.out.println(iv._1 + "," + iv._2);
 //        });
         
-        //process the data for the edges of the graph
-        
-        //JavaPairRDD<Long, List<Tuple3<Long, List<Long>, List<Long>>>>
         JavaRDD<Edge<Long>> edges = segmentedWays.filter(way -> way._2.size() > 1).flatMap(way -> {
         	return new SlidingList<Tuple3<Long, List<Long>, List<Long>>>(way._2).windows(2).stream().flatMap(segment ->{
-        		return new ArrayList<>(Arrays.asList(
+        		return Lists.newArrayList(Arrays.asList(
         				new Edge<>(segment._1._1(), segment._2._1(), way._1),
         				new Edge<>(segment._2._1(), segment._1._1(), way._1)
         				)).stream();
@@ -224,15 +244,16 @@ public class OSMParser implements Serializable{
 //        edges.take(10).forEach(e -> {
 //        	System.out.println(e.toString());
 //        });
-        
-        Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Long> roadGraph = Graph.apply(
+        Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>> initMap = ImmutableMap.<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>>builder()
+        		.put(1L, new Tuple2<ArrayList<Long>, ArrayList<Long>>(new ArrayList<>(), new ArrayList<>())).build();
+        Graph<Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>>, Long> roadGraph = Graph.apply(
         			intersectVertices.rdd(), 
         			edges.rdd(), 
-        			new HashMap<>(),
+        			initMap,
         			StorageLevel.MEMORY_AND_DISK(), 
         			StorageLevel.MEMORY_AND_DISK(),
-        			scala.reflect.ClassTag$.MODULE$.apply(Map.class),
-        			scala.reflect.ClassTag$.MODULE$.apply(Long.class));
+        			ClassTag$.MODULE$.apply(Map.class),
+        			tagLong);
         
 //        roadGraph.edges().toJavaRDD().foreach(r -> {
 //        		System.out.println(r);
@@ -246,53 +267,33 @@ public class OSMParser implements Serializable{
         }).collectAsMap();
         
 
-        
-        Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Tuple2<Long, Double>> weightedRoadGraph = roadGraph.mapTriplets(
+        Graph<Map<Long, Tuple2<ArrayList<Long>, ArrayList<Long>>>, Tuple2<Long, Double>> weightedRoadGraph = roadGraph.mapTriplets(
         		new AbsDistFunc(OSMNodes), scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
         
         //32884939,32884943
-        Seq<Object> request = convertListToSeq(Arrays.asList(32884939L,32884943L));
-        //ShortestPaths.run(weightedRoadGraph, request, scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
-        GraphOps<Map<Long, Tuple2<List<Long>, List<Long>>>, Tuple2<Long, Double>> ops = new GraphOps<>(weightedRoadGraph, scala.reflect.ClassTag$.MODULE$.apply(Map.class),scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
-        ops.pregel(Integer.MAX_VALUE,
-                Integer.MAX_VALUE,
-                EdgeDirection.Out(),
-                new VProg(),
-                new sendMsg(),
-                new merge(),
-                scala.reflect.ClassTag$.MODULE$.apply(Integer.class))
-            .vertices()
-            .toJavaRDD()
-            .sortBy(v -> { return labels.get(((Tuple2<Object, Integer>)v)._1); }, true, 1)
-            .foreach(v -> {
-                Tuple2<Object,Integer> vertex = (Tuple2<Object,Integer>)v;
-                System.out.println("Minimum cost to get from "+labels.get(1l)+" to "+labels.get(vertex._1)+" is "+vertex._2);
-            });
-        
+        Seq<Long> request = convertListToSeq(Arrays.asList(32884939L,32884943L));
+        Graph<Tuple2<Double, ArrayList<Long>>, Tuple2<Long, Double>> initalGraph = weightedRoadGraph.mapVertices(
+        		new SerializableFunction2(request), ClassTag$.MODULE$.apply(Tuple2.class), eqMap);
+//
+//		Pregel.apply(initalGraph, 
+//				new Tuple2<Double, ArrayList<Long>>(Double.POSITIVE_INFINITY, Lists.newArrayList()), 
+//				Integer.MAX_VALUE, 
+//				EdgeDirection.Out(), 
+//				new Vprog(), 
+//				new SendMsg(), 
+//				new MergeMsg(), 
+//				scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class), 
+//				scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class), 
+//				scala.reflect.ClassTag$.MODULE$.apply(Tuple2.class));
         spark.stop();
         
 	}
 	
-	public static Seq<Object> convertListToSeq(List<Object> inputList) {
+	public static Seq<Long> convertListToSeq(List<Long> inputList) {
 	    return JavaConverters.asScalaIteratorConverter(inputList.iterator()).asScala().toSeq();
 	}
 	
-//	public static List<Long> dijkstra(Graph<Map<Long, Tuple2<List<Long>, List<Long>>>, Tuple2<Long, Double>> weightedRoadGraph, Seq<Object> request){
-//		List<Long> res = new ArrayList<>();
-//		weightedRoadGraph.mapVertices(arg0, arg1, arg2)
-//	}
-	
 
-//	public static <K, V> scala.collection.mutable.Map<K, V> ScalaMutableMap(java.util.Map<K, V> jmap) {
-//	    List<Tuple2<K, V>> tuples = jmap.entrySet()
-//	      .stream()
-//	      .map(e -> Tuple2.apply(e.getKey(), e.getValue()))
-//	      .collect(Collectors.toList());
-//
-//	    Seq<Tuple2<K, V>> scalaSeq = JavaConverters.asScalaIteratorConverter(tuples.iterator()).asScala().toSeq();
-//
-//	    return (Map<K, V>) scala.collection.mutable.Map$.MODULE$.apply(scalaSeq);
-//	}
 	
 	
 }
