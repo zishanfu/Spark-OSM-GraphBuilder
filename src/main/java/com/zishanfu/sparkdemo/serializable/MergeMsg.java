@@ -13,6 +13,7 @@ public class MergeMsg extends AbstractFunction2<Tuple2<Double, ArrayList<Long>>,
 
 	@Override
 	public Tuple2<Double, ArrayList<Long>> apply(Tuple2<Double, ArrayList<Long>> a, Tuple2<Double, ArrayList<Long>> b) {
+		System.out.println("MergeMsg");
         if(a._1.compareTo(b._1) < 0) return a;
         return b;
 	}

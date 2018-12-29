@@ -1,16 +1,15 @@
 package com.zishanfu.sparkdemo.entity;
 
 import java.io.Serializable;
-import java.util.List;
-
+import java.util.ArrayList;
 import scala.Tuple2;
 
 //List<Tuple2<Long, Boolean>>
 public class LabeledWay implements Serializable{
 	private long wayId;
-	private List<Tuple2<Long, Boolean>> labeledNodes;
+	private ArrayList<Tuple2<Long, Boolean>> labeledNodes;
 	public LabeledWay() {}
-	public LabeledWay(long wayId, List<Tuple2<Long, Boolean>> labeledNodes) {
+	public LabeledWay(long wayId, ArrayList<Tuple2<Long, Boolean>> labeledNodes) {
 		this.wayId = wayId;
 		this.labeledNodes = labeledNodes;
 	}
@@ -20,10 +19,10 @@ public class LabeledWay implements Serializable{
 	public void setWayId(long wayId) {
 		this.wayId = wayId;
 	}
-	public List<Tuple2<Long, Boolean>> getLabeledNodes() {
+	public ArrayList<Tuple2<Long, Boolean>> getLabeledNodes() {
 		return labeledNodes;
 	}
-	public void setLabeledNodes(List<Tuple2<Long, Boolean>> labeledNodes) {
+	public void setLabeledNodes(ArrayList<Tuple2<Long, Boolean>> labeledNodes) {
 		this.labeledNodes = labeledNodes;
 	}
 	

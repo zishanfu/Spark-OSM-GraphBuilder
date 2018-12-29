@@ -116,14 +116,15 @@ public class PathFinder {
                 new VProg(),
                 new sendMsg(),
                 new merge(),
-                ClassTag$.MODULE$.apply(Tuple2.class))
-                .vertices()
-                .toJavaRDD()
-                .sortBy(v -> { return labels.get(((Tuple2<Object, Tuple2<Integer, ArrayList<String>>>)v)._1); }, true, 1)
-                .foreach(v -> {
-                    Tuple2<Object,Tuple2<Integer, ArrayList<String>>> vertex = (Tuple2<Object,Tuple2<Integer, ArrayList<String>>>)v;
-                    System.out.println("Minimum path to get from "+labels.get(1l)+" to "+labels.get(vertex._1)+" is "+ vertex._2._2.toString()  +" with cost "+vertex._2._1 );
-                });
+                ClassTag$.MODULE$.apply(Tuple2.class));
+        
+//                .vertices()
+//                .toJavaRDD()
+//                .sortBy(v -> { return labels.get(((Tuple2<Object, Tuple2<Integer, ArrayList<String>>>)v)._1); }, true, 1)
+//                .foreach(v -> {
+//                    Tuple2<Object,Tuple2<Integer, ArrayList<String>>> vertex = (Tuple2<Object,Tuple2<Integer, ArrayList<String>>>)v;
+//                    System.out.println("Minimum path to get from "+labels.get(1l)+" to "+labels.get(vertex._1)+" is "+ vertex._2._2.toString()  +" with cost "+vertex._2._1 );
+//                });
     }
 
 }
